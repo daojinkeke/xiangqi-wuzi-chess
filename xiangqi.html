@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>中国象棋（双人对弈）</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#222;
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+#board-wrap{
+  position:relative;
+  background:#f0d9b5;
+  border:4px solid #444;
+  padding:20px;
+}
+canvas{
+  display:block;
+  cursor:pointer;
+}
+</style>
+</head>
+<body>
+  <audio src="audio/click.wav" id="clickAudio" preload="auto"></audio>
+	<audio src="audio/select.wav" id="selectAudio" preload="auto"></audio>
+<div id="board-wrap">
+  <canvas id="board" width="540" height="600"></canvas>
+</div>
+
+<script>
+/* ========== 中国象棋规则引擎 ========== */
+const COLS = 9, ROWS = 10;
+const CELL = 60;
+const OFFSET = 30;
+  // 获取音频元素
+  // const clickaudio = document.getElementById('clickAudio');
+  // const selectaudio = document.getElementById('selectAudio');
+// 棋子类型：K将/帅, A士/仕, B象/相, N马, R车, C炮, P兵/卒
+// 颜色：r红, b黑
+const PIECE_CHAR = {
+  rK:'帅', rA:'仕', rB:'相', rN:'马', rR:'车', rC:'炮', rP:'兵',
+  bK:'将', bA:'士', bB:'象', bN:'🐎', bR:'🚗', bC:'💣', bP:'卒'
+};
+
+// 初始棋盘 board[y][x] = {type, color} 或 null
+// y=0 黑方底线，y=9 红方底线
+function initBoard(){
+  const b = Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
+  // 黑方
+  b[0] = [
+    {type:'R',color:'b'},{type:'N',color:'b'},{type:'B',color:'b'},
+    {type:'A',color:'b'},{type:'K',color:'b'},{type:'A',color:'b'},
+    {type:'B',color:'b'},{type:'N',color:'b'},{type:'R',color:'b'}
+  ];
+  b[2][1] = {type:'C',color:'b'};
+  b[2][7] = {type:'C',color:'b'};
+  for(const x of [0,2,4,6,8]) b[3][x] = {type:'P',color:'b'};
+  // 红方
+  b[9] = [
+    {type:'R',color:'r'},{type:'N',color:'r'},{type:'B',color:'r'},
+    {type:'A',color:'r'},{type:'K',color:'r'},{type:'A',color:'r'},
+    {type:'B',color:'r'},{type:'N',color:'r'},{type:'R',color:'r'}
+  ];
+  b[7][1] = {type:'C',color:'r'};
+  b[7][7] = {type:'C',color:'r'};
+  for(const x of [0,2,4,6,8]) b[6][x] = {type:'P',color:'r'};
+  return b;
+}
+
+let board = initBoard();
+let turn = 'r'; // r红先
+let selected = null; // {x,y}
+let gameOver = false;
+
+function inBoard(x,y){ return x>=0&&x<COLS&&y>=0&&y<ROWS; }
+function inPalace(x,y,color){
+  if(x<3||x>5) return false;
+  if(color==='r') return y>=7&&y<=9;
+  return y>=0&&y<=2;
+}
+function crossedRiver(x,y,color){
+  if(color==='r') return y<=4;
+  return y>=5;
+}
+
+// 生成某棋子的所有伪合法走法（不检查将军）
+function pseudoMoves(x,y){
+  const p = board[y][x];
+  if(!p) return [];
+  const moves = [];
+  const enemy = p.color==='r'?'b':'r';
+
+  switch(p.type){
+    case 'K': { // 将帅：九宫格内横竖一格
+      const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+      for(const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if(inPalace(nx,ny,p.color)){
+          const t = board[ny][nx];
+          if(!t || t.color===enemy) moves.push({x:nx,y:ny});
+        }
+      }
+      break;
+    }
+    case 'A': { // 士仕：九宫格内斜一格
+      const dirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
+      for(const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if(inPalace(nx,ny,p.color)){
+          const t = board[ny][nx];
+          if(!t || t.color===enemy) moves.push({x:nx,y:ny});
+        }
+      }
+      break;
+    }
+    case 'B': { // 象相：走田，不过河，象眼不能有子
+      const dirs = [[2,2],[2,-2],[-2,2],[-2,-2]];
+      for(const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if(!inBoard(nx,ny)) continue;
+        if(crossedRiver(nx,ny,p.color)) continue; // 不能过河
+        // 象眼
+        const ex=x+dx/2, ey=y+dy/2;
+        if(board[ey][ex]) continue;
+        const t = board[ny][nx];
+        if(!t || t.color===enemy) moves.push({x:nx,y:ny});
+      }
+      break;
+    }
+    case 'N': { // 马：走日，蹩马腿
+      const jumps = [
+        {dx:1,dy:2, lx:0,ly:1}, {dx:-1,dy:2, lx:0,ly:1},
+        {dx:1,dy:-2, lx:0,ly:-1}, {dx:-1,dy:-2, lx:0,ly:-1},
+        {dx:2,dy:1, lx:1,ly:0}, {dx:2,dy:-1, lx:1,ly:0},
+        {dx:-2,dy:1, lx:-1,ly:0}, {dx:-2,dy:-1, lx:-1,ly:0}
+      ];
+      for(const j of jumps){
+        const nx=x+j.dx, ny=y+j.dy;
+        if(!inBoard(nx,ny)) continue;
+        if(board[y+j.ly][x+j.lx]) continue; // 蹩腿
+        const t = board[ny][nx];
+        if(!t || t.color===enemy) moves.push({x:nx,y:ny});
+      }
+      break;
+    }
+    case 'R': { // 车：横竖走，不能越子
+      const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+      for(const [dx,dy] of dirs){
+        let nx=x+dx, ny=y+dy;
+        while(inBoard(nx,ny)){
+          const t = board[ny][nx];
+          if(!t){ moves.push({x:nx,y:ny}); }
+          else { if(t.color===enemy) moves.push({x:nx,y:ny}); break; }
+          nx+=dx; ny+=dy;
+        }
+      }
+      break;
+    }
+    case 'C': { // 炮：走同车，吃子需翻山
+      const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+      for(const [dx,dy] of dirs){
+        let nx=x+dx, ny=y+dy;
+        let jumped = false;
+        while(inBoard(nx,ny)){
+          const t = board[ny][nx];
+          if(!jumped){
+            if(!t) moves.push({x:nx,y:ny});
+            else jumped = true;
+          } else {
+            if(t){ if(t.color===enemy) moves.push({x:nx,y:ny}); break; }
+          }
+          nx+=dx; ny+=dy;
+        }
+      }
+      break;
+    }
+    case 'P': { // 兵卒：过河前只能向前，过河后可左右，不能后退
+      const forward = p.color==='r' ? -1 : 1;
+      // 向前
+      const ny=y+forward;
+      if(inBoard(x,ny)){
+        const t = board[ny][x];
+        if(!t || t.color===enemy) moves.push({x,y:ny});
+      }
+      // 左右（过河后）
+      if(crossedRiver(x,y,p.color)){
+        for(const dx of [-1,1]){
+          const nx=x+dx;
+          if(inBoard(nx,y)){
+            const t = board[y][nx];
+            if(!t || t.color===enemy) moves.push({x:nx,y});
+          }
+        }
+      }
+      break;
+    }
+  }
+  return moves;
+}
+
+// 找某方的将/帅位置
+function findKing(color){
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const p = board[y][x];
+      if(p && p.type==='K' && p.color===color) return {x,y};
+    }
+  }
+  return null;
+}
+
+// 将帅是否照面
+function kingsFacing(){
+  const rk = findKing('r'), bk = findKing('b');
+  if(!rk || !bk) return false;
+  if(rk.x !== bk.x) return false;
+  const minY = Math.min(rk.y, bk.y), maxY = Math.max(rk.y, bk.y);
+  for(let y=minY+1;y<maxY;y++){
+    if(board[y][rk.x]) return false;
+  }
+  return true;
+}
+
+// 某方是否被将军
+function inCheck(color){
+  const king = findKing(color);
+  if(!king) return true;
+  if(kingsFacing()) return true;
+  const enemy = color==='r'?'b':'r';
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const p = board[y][x];
+      if(p && p.color===enemy){
+        const moves = pseudoMoves(x,y);
+        if(moves.some(m=>m.x===king.x && m.y===king.y)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 生成合法走法（排除送将）
+function legalMoves(x,y){
+  const p = board[y][x];
+  if(!p || p.color!==turn) return [];
+  const result = [];
+  const moves = pseudoMoves(x,y);
+  for(const m of moves){
+    // 模拟走棋
+    const captured = board[m.y][m.x];
+    board[m.y][m.x] = p;
+    board[y][x] = null;
+    if(!inCheck(p.color)) result.push(m);
+    // 撤销
+    board[y][x] = p;
+    board[m.y][m.x] = captured;
+  }
+  return result;
+}
+
+// 当前方是否将死
+function isCheckmate(color){
+  if(!inCheck(color)) return false;
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const p = board[y][x];
+      if(p && p.color===color){
+        if(legalMoves(x,y).length>0) return false;
+      }
+    }
+  }
+  return true;
+}
+
+// 走棋
+function makeMove(fx,fy,tx,ty){
+  const p = board[fy][fx];
+  board[ty][tx] = p;
+  board[fy][fx] = null;
+  turn = turn==='r'?'b':'r';
+}
+
+/* ========== 绘制 ========== */
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 背景
+  ctx.fillStyle = '#f0d9b5';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // 横线
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1.5;
+  for(let y=0;y<ROWS;y++){
+    ctx.beginPath();
+    ctx.moveTo(OFFSET, OFFSET+y*CELL);
+    ctx.lineTo(OFFSET+(COLS-1)*CELL, OFFSET+y*CELL);
+    ctx.stroke();
+  }
+  // 竖线（楚河汉界断开）
+  for(let x=0;x<COLS;x++){
+    if(x===0 || x===COLS-1){
+      ctx.beginPath();
+      ctx.moveTo(OFFSET+x*CELL, OFFSET);
+      ctx.lineTo(OFFSET+x*CELL, OFFSET+(ROWS-1)*CELL);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(OFFSET+x*CELL, OFFSET);
+      ctx.lineTo(OFFSET+x*CELL, OFFSET+4*CELL);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(OFFSET+x*CELL, OFFSET+5*CELL);
+      ctx.lineTo(OFFSET+x*CELL, OFFSET+(ROWS-1)*CELL);
+      ctx.stroke();
+    }
+  }
+  // 九宫格斜线
+  ctx.beginPath();
+  ctx.moveTo(OFFSET+3*CELL, OFFSET);
+  ctx.lineTo(OFFSET+5*CELL, OFFSET+2*CELL);
+  ctx.moveTo(OFFSET+5*CELL, OFFSET);
+  ctx.lineTo(OFFSET+3*CELL, OFFSET+2*CELL);
+  ctx.moveTo(OFFSET+3*CELL, OFFSET+7*CELL);
+  ctx.lineTo(OFFSET+5*CELL, OFFSET+9*CELL);
+  ctx.moveTo(OFFSET+5*CELL, OFFSET+7*CELL);
+  ctx.lineTo(OFFSET+3*CELL, OFFSET+9*CELL);
+  ctx.stroke();
+
+  // 楚河汉界文字
+  ctx.fillStyle = '#333';
+  ctx.font = 'bold 28px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('楚 河', OFFSET+2*CELL, OFFSET+4.5*CELL);
+  ctx.fillText('漢 界', OFFSET+6*CELL, OFFSET+4.5*CELL);
+
+  // 选中高亮 + 合法走法提示
+  let legalTargets = [];
+  if(selected){
+    legalTargets = legalMoves(selected.x, selected.y);
+    ctx.fillStyle = 'rgba(115,149,82,0.6)';
+    ctx.beginPath();
+    ctx.arc(OFFSET+selected.x*CELL, OFFSET+selected.y*CELL, 32, 0, Math.PI*2);
+    ctx.fill();
+    // selectaudio.play();    // 播放
+  }
+  for(const m of legalTargets){
+    ctx.fillStyle = board[m.y][m.x] ? 'rgba(200,50,50,0.5)' : 'rgba(115,149,82,0.4)';
+    ctx.beginPath();
+    ctx.arc(OFFSET+m.x*CELL, OFFSET+m.y*CELL, board[m.y][m.x]?32:10, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // 棋子
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const p = board[y][x];
+      if(!p) continue;
+      const cx = OFFSET+x*CELL, cy = OFFSET+y*CELL;
+      // 棋子背景
+      ctx.beginPath();
+      ctx.arc(cx, cy, 26, 0, Math.PI*2);
+      ctx.fillStyle = '#f5deb3';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = p.color==='r' ? '#c0392b' : '#222';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 22, 0, Math.PI*2);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // 文字
+      ctx.fillStyle = p.color==='r' ? '#c0392b' : '#222';
+      ctx.font = 'bold 30px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(PIECE_CHAR[p.color+p.type], cx, cy+1);
+    }
+  }
+
+  // 回合提示（极简，放在标题）
+  if(gameOver){
+    document.title = '游戏结束';
+  } else {
+    // clickaudio.play();   // 播放
+    document.title = (turn==='r'?'红方走':'黑方走') + ' - 中国象棋';
+  }
+}
+
+/* ========== 交互 ========== */
+canvas.addEventListener('click', (e)=>{
+  if(gameOver) return;
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left) * (canvas.width/rect.width);
+  const py = (e.clientY - rect.top) * (canvas.height/rect.height);
+  const x = Math.round((px - OFFSET)/CELL);
+  const y = Math.round((py - OFFSET)/CELL);
+  if(!inBoard(x,y)) return;
+
+  if(!selected){
+    const p = board[y][x];
+    if(p && p.color===turn) selected = {x,y};
+  } else {
+    if(selected.x===x && selected.y===y){
+      selected = null;
+    } else {
+      const moves = legalMoves(selected.x, selected.y);
+      if(moves.some(m=>m.x===x && m.y===y)){
+        makeMove(selected.x, selected.y, x, y);
+        selected = null;
+        if(isCheckmate(turn)){
+          gameOver = true;
+          setTimeout(()=>{
+            alert((turn==='r'?'黑方':'红方') + '胜利！');
+          }, 100);
+        }
+      } else {
+        // 点了自己另一个棋子，切换选中
+        const p = board[y][x];
+        if(p && p.color===turn) selected = {x,y};
+        else selected = null;
+      }
+    }
+  }
+  draw();
+});
+
+draw();
+</script>
+</body>
+</html>
