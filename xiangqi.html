@@ -75,6 +75,7 @@ let board = initBoard();
 let turn = 'r'; // r红先
 let selected = null; // {x,y}
 let gameOver = false;
+let checkHistory = [];// 长将判定
 
 function inBoard(x,y){ return x>=0&&x<COLS&&y>=0&&y<ROWS; }
 function inPalace(x,y,color){
@@ -262,26 +263,78 @@ function legalMoves(x,y){
   return result;
 }
 
-// 当前方是否将死
-function isCheckmate(color){
-  if(!inCheck(color)) return false;
-  for(let y=0;y<ROWS;y++){
-    for(let x=0;x<COLS;x++){
-      const p = board[y][x];
-      if(p && p.color===color){
-        if(legalMoves(x,y).length>0) return false;
-      }
+
+// 判断该方是否存在任意一步合法走法
+function hasLegalMove(color) {
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            const p = board[y][x];
+            if (p && p.color === color) {
+                const moves = pseudoMoves(x, y);
+                for (const m of moves) {
+                    const captured = board[m.y][m.x];
+                    board[m.y][m.x] = p;
+                    board[y][x] = null;
+
+                    const safe = !inCheck(p.color);
+
+                    // 回溯
+                    board[y][x] = p;
+                    board[m.y][m.x] = captured;
+
+                    if (safe) return true;
+                }
+            }
+        }
     }
-  }
-  return true;
+    return false;
 }
 
+// 当前方是否被将死
+function isCheckmate(color) {
+    return inCheck(color) && !hasLegalMove(color);
+}
+
+// 是否困毙
+function isStalemate(color) {
+    return !inCheck(color) && !hasLegalMove(color);
+}
+// 长将检测
+// function serializeBoard() {
+//     let str = "";
+//     for(let y=0; y<ROWS; y++){
+//         for(let x=0; x<COLS; x++){
+//             const p = board[y][x];
+//             str += p ? (p.color + p.type) : "_";
+//         }
+//     }
+//     str += turn;
+//     return str;
+// }
+// function isPerpetualCheck() {
+//     const key = serializeBoard();
+//     let repeat = 0;
+//     for(const k of checkHistory){
+//         if(k === key) repeat++;
+//     }
+//     return repeat >= 5;
+// }
 // 走棋
+// let isPerpetualflag = 0;
 function makeMove(fx,fy,tx,ty){
   const p = board[fy][fx];
   board[ty][tx] = p;
   board[fy][fx] = null;
   turn = turn==='r'?'b':'r';
+  // if(inCheck(turn)){
+  //       isPerpetualflag = 1;
+  //       checkHistory.push(serializeBoard());
+  //   }else if(isPerpetualflag === 1){
+  //     isPerpetualflag = 0;
+  //   }else{
+  //       checkHistory = [];
+  //       isPerpetualflag = 0;
+  //   }
 }
 
 /* ========== 绘制 ========== */
@@ -415,12 +468,19 @@ canvas.addEventListener('click', (e)=>{
       if(moves.some(m=>m.x===x && m.y===y)){
         makeMove(selected.x, selected.y, x, y);
         selected = null;
-        if(isCheckmate(turn)){
+        if(isCheckmate(turn)||isStalemate(turn)){
           gameOver = true;
           setTimeout(()=>{
             alert((turn==='r'?'黑方':'红方') + '胜利！');
           }, 100);
         }
+        //执行长将检测
+        // if (inCheck() && isPerpetualCheck()) {
+        //     gameOver = true;
+        //     setTimeout(() => {
+        //         alert("长将犯规！" + (turn === 'r' ? '红方' : '黑方') + "判负");
+        //     }, 100);
+        // }
       } else {
         // 点了自己另一个棋子，切换选中
         const p = board[y][x];
