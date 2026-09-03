@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>俄罗斯方块</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+    background:#0b0b14;
+    color:#ffffff;
+    font-family:"Microsoft Yahei",Arial,sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+}
+.wrap{
+    display:flex;
+    gap:32px;
+    align-items:flex-start;
+}
+#game{
+    display:grid;
+    grid-template-columns: repeat(12,26px);
+    gap:2px;
+    background:#202035;
+    padding:4px;
+    border-radius:8px;
+    box-shadow:0 0 24px #25254688;
+}
+.cell{
+    width:26px;height:26px;
+    background:#141422;
+    border-radius:3px;
+}
+/* 消行闪烁动画 */
+.cell.flash{
+    animation: flashAnim 0.12s infinite alternate;
+}
+@keyframes flashAnim {
+    0%{background:#ff4466;}
+    100%{background:#44ddff;}
+}
+.side-panel{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+}
+.title{
+    font-size:24px;
+    font-weight:bold;
+    color:#63e2ff;
+}
+.info-text{
+    line-height:1.7;
+    font-size:14px;
+    color:#ccccdd;
+}
+#preview-box{
+    background:#202035;
+    padding:12px;
+    border-radius:8px;
+}
+.preview-title{
+    margin-bottom:8px;
+    font-size:15px;
+    color:#86d8ff;
+}
+#preview{
+    display:grid;
+    grid-template-columns: repeat(4,26px);
+    gap:2px;
+}
+.preview-cell{
+    width:26px;height:26px;
+    background:#141422;
+    border-radius:3px;
+}
+.pause-wrap{
+    position:relative;
+}
+#pause-overlay{
+    position:absolute;
+    inset:0;
+    background:rgba(0,0,0,0.65);
+    border-radius:8px;
+    display:none;
+    justify-content:center;
+    align-items:center;
+}
+.pause-text{
+    font-size:28px;
+    color:#ffdd44;
+    font-weight:bold;
+    text-shadow:0 0 10px #ffdd4477;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="pause-wrap">
+        <div id="game"></div>
+        <div id="pause-overlay">
+            <div class="pause-text">⏸ 已暂停</div>
+        </div>
+    </div>
+    <div class="side-panel">
+        <div class="title">俄罗斯方块</div>
+        <div class="info-text">
+            分数：<span id="score">0</span><br>
+            消除行数：<span id="lineCount">0</span><br>
+            ← → 移动&nbsp;&nbsp;↑ 旋转<br>
+            ↓ 加速下落<br>
+            空格：暂停/继续<br>
+            R：重新开始
+        </div>
+        <div id="preview-box">
+            <div class="preview-title">下一个方块</div>
+            <div id="preview"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const WIDTH = 12;
+const HEIGHT = 18;
+const SHAPES = [
+  [[1,1,1,1]],
+  [[1,1],[1,1]],
+  [[1,1,1],[0,1,0]],
+  [[1,1,1],[1,0,0]],
+  [[1,1,1],[0,0,1]],
+  [[1,1,0],[0,1,1]],
+  [[0,1,1],[1,1,0]]
+];
+const FALL_COLORS = ["#42b983","#ff6b6b","#ffd166","#06d6a0","#118ab2","#ef476f"];
+const LOCK_COLOR = "#aaaaaa";
+
+let board = [];
+let cur = null;
+let curColor = "";
+let nextShape = null;
+let nextColor = "";
+let curX = 0, curY = 0;
+let score = 0;
+let totalLines = 0;
+let timer = null;
+let isPaused = false;
+let isClearing = false;
+
+const gameDom = document.getElementById("game");
+const scoreDom = document.getElementById("score");
+const lineCountDom = document.getElementById("lineCount");
+const previewDom = document.getElementById("preview");
+const pauseOverlay = document.getElementById("pause-overlay");
+
+function testCollision(piece, ox, oy) {
+  for(let y = 0; y < piece.length; y++) {
+    for(let x = 0; x < piece[y].length; x++) {
+      if(piece[y][x]) {
+        const nx = curX + x + ox;
+        const ny = curY + y + oy;
+        if(nx < 0 || nx >= WIDTH) return true;
+        if(ny >= HEIGHT) return true;
+        if(ny >= 0 && board[ny][nx]) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function checkCollision(ox, oy) {
+  return testCollision(cur, ox, oy);
+}
+
+const WALL_KICKS = [[0,0], [-1,0], [1,0], [-2,0], [2,0]];
+
+function tryRotate() {
+  const rotated = rotate(cur);
+  for(const [dx, dy] of WALL_KICKS) {
+    if(!testCollision(rotated, dx, dy)) {
+      return {ok:true, dx:dx, dy:dy, newPiece:rotated};
+    }
+  }
+  return {ok:false, dx:0, dy:0, newPiece:null};
+}
+
+function rotate(mat) {
+  const h = mat.length;
+  const w = mat[0].length;
+  let res = Array.from({length:w}, ()=>Array(h).fill(0));
+  for(let i = 0; i < h; i++) {
+    for(let j = 0; j < w; j++) {
+      res[j][h - 1 - i] = mat[i][j];
+    }
+  }
+  return res;
+}
+
+function initPreview(){
+  previewDom.innerHTML = "";
+  for(let y=0;y<4;y++){
+    for(let x=0;x<4;x++){
+      const div = document.createElement("div");
+      div.className = "preview-cell";
+      div.dataset.px=x;div.dataset.py=y;
+      previewDom.appendChild(div);
+    }
+  }
+}
+
+function renderPreview(){
+  document.querySelectorAll(".preview-cell").forEach(d=>d.style.backgroundColor="#141422");
+  const offsetX = Math.floor((4 - nextShape[0].length)/2);
+  const offsetY = Math.floor((4 - nextShape.length)/2);
+  for(let y=0;y<nextShape.length;y++){
+    for(let x=0;x<nextShape[y].length;x++){
+      if(nextShape[y][x]){
+        const px = offsetX + x;
+        const py = offsetY + y;
+        const cell = document.querySelector(`.preview-cell[data-px="${px}"][data-py="${py}"]`);
+        if(cell) cell.style.backgroundColor = nextColor;
+      }
+    }
+  }
+}
+
+function genOnePiece(){
+  const idx = Math.floor(Math.random()*SHAPES.length);
+  return {
+    shape: SHAPES[idx],
+    color: FALL_COLORS[Math.floor(Math.random()*FALL_COLORS.length)]
+  }
+}
+
+function initBoard(){
+  board = Array.from({length:HEIGHT},()=>Array(WIDTH).fill(null));
+  gameDom.innerHTML = "";
+  for(let y=0;y<HEIGHT;y++){
+    for(let x=0;x<WIDTH;x++){
+      const div = document.createElement("div");
+      div.className = "cell";
+      div.dataset.x=x;div.dataset.y=y;
+      gameDom.appendChild(div);
+    }
+  }
+}
+
+function newPiece(){
+  const current = nextShape;
+  const currentC = nextColor;
+  const np = genOnePiece();
+  cur = current;
+  curColor = currentC;
+  nextShape = np.shape;
+  nextColor = np.color;
+
+  curX = Math.floor(WIDTH/2 - cur[0].length/2);
+  curY = 0;
+  renderPreview();
+  if(checkCollision(0,0)){
+    gameOver();
+  }
+}
+
+function lock(){
+  for(let y=0;y<cur.length;y++){
+    for(let x=0;x<cur[y].length;x++){
+      if(cur[y][x]){
+        board[curY+y][curX+x] = LOCK_COLOR;
+      }
+    }
+  }
+}
+
+function clearLine(){
+  let willClearRows = [];
+  for(let y=HEIGHT-1;y>=0;y--){
+    if(board[y].every(v=>v!==null)){
+      willClearRows.push(y);
+    }
+  }
+  if(willClearRows.length === 0) {
+      isClearing = false;
+      newPiece();
+      render();
+      return;
+  }
+
+  isClearing = true;
+  for(const y of willClearRows){
+    for(let x=0;x<WIDTH;x++){
+      const dom = getCell(x,y);
+      dom.classList.add("flash");
+    }
+  }
+
+  setTimeout(()=>{
+    const lines = willClearRows.length;
+    let newBoard = [];
+    for(let y=0; y<HEIGHT; y++){
+        if(!willClearRows.includes(y)){
+            newBoard.push(board[y]);
+        }
+    }
+    // 上方补空行
+    for(let i=0;i<lines;i++){
+        newBoard.unshift(Array(WIDTH).fill(null));
+    }
+    board = newBoard;
+
+    score += lines*100;
+    totalLines += lines;
+    scoreDom.innerText = score;
+    lineCountDom.innerText = totalLines;
+
+    isClearing = false;
+    newPiece();
+    render();
+  },400);
+}
+
+function getCell(x,y){
+  return document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+}
+
+function render(){
+  const cells = document.querySelectorAll(".cell");
+  for(const d of cells){
+    if(!isClearing){
+      d.classList.remove("flash");
+    }
+    d.style.backgroundColor="#141422";
+  }
+
+  for(let y=0;y<HEIGHT;y++){
+    for(let x=0;x<WIDTH;x++){
+      if(board[y][x]) getCell(x,y).style.backgroundColor = board[y][x];
+    }
+  }
+  if(cur){
+    for(let y=0;y<cur.length;y++){
+      for(let x=0;x<cur[y].length;x++){
+        if(cur[y][x]){
+          const cy = curY+y;
+          const cx = curX+x;
+          if(cy>=0) getCell(cx,cy).style.backgroundColor = curColor;
+        }
+      }
+    }
+  }
+}
+
+function drop(){
+  if(isPaused || isClearing) return;
+  if(!checkCollision(0,1)){
+    curY +=1;
+    render();
+  }else{
+    lock();
+    clearLine();
+  }
+}
+
+function gameOver(){
+  clearInterval(timer);
+  alert("游戏结束！分数："+score+"，消除行数："+totalLines);
+}
+
+function start(){
+  score = 0;
+  totalLines = 0;
+  scoreDom.innerText=0;
+  lineCountDom.innerText = 0;
+  isPaused = false;
+  isClearing = false;
+  pauseOverlay.style.display = "none";
+  initBoard();
+  initPreview();
+  const first = genOnePiece();
+  cur = first.shape;
+  curColor = first.color;
+  const np = genOnePiece();
+  nextShape = np.shape;
+  nextColor = np.color;
+  curX = Math.floor(WIDTH/2 - cur[0].length/2);
+  curY = 0;
+  renderPreview();
+  render();
+  clearInterval(timer);
+  timer = setInterval(drop,450);
+}
+
+document.addEventListener("keydown",e=>{
+  if(e.code === "Space"){
+    e.preventDefault();
+    isPaused = !isPaused;
+    pauseOverlay.style.display = isPaused ? "flex" : "none";
+    return;
+  }
+  if(isPaused || !cur || isClearing)return;
+
+  switch(e.key){
+    case "ArrowLeft":
+      if(!checkCollision(-1,0)) curX--;
+      break;
+    case "ArrowRight":
+      if(!checkCollision(1,0)) curX++;
+      break;
+    case "ArrowDown":
+      if(!checkCollision(0,1)) curY++;
+      break;
+    case "ArrowUp":{
+      const rotRes = tryRotate();
+      if(rotRes.ok){
+        cur = rotRes.newPiece;
+        curX += rotRes.dx;
+        if(checkCollision(0,1)){
+          lock();
+          clearLine();
+          return;
+        }
+      }
+      break;
+    }
+    case "r":
+    case "R":
+      start();
+      return;
+  }
+  render();
+})
+
+start();
+
+</script>
+</body>
+</html>

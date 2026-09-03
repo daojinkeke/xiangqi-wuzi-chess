@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Minesweeper 扫雷</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+    font-family:"Microsoft Yahei",Arial,sans-serif;
+    background:#121420;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    color:#fff;
+    gap:12px;
+}
+.info-top{
+    font-size:22px;
+    color:#82d8ff;
+}
+.control-group{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:18px;
+}
+input[type="number"]{
+    width:70px;
+    font-size:18px;
+    padding:4px;
+    border-radius:4px;
+    border:none;
+    outline:none;
+}
+.btn-num{
+    width:34px;
+    height:34px;
+    font-size:20px;
+    border-radius:4px;
+    border:none;
+    cursor:pointer;
+    background:#607d8b;
+    color:#fff;
+}
+#restartBtn{
+    font-size:16px;
+    padding:6px 14px;
+    border-radius:4px;
+    border:none;
+    cursor:pointer;
+    background:#42a5f5;
+    color:white;
+}
+.tip-text{
+    font-size:16px;
+    color:#cccccc;
+}
+#board{
+    display:grid;
+    grid-template-columns:repeat(9,64px);
+    gap:6px;
+}
+.cell{
+    width:64px;height:64px;
+    background:#353854;
+    border-radius:10px;
+    box-shadow: 0 6px 0 #222438;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-weight:bold;
+    font-size:32px;
+    cursor:pointer;
+    user-select:none;
+    transition:0.12s;
+}
+.cell:active{
+    transform:translateY(4px);
+    box-shadow:0 2px 0 #222438;
+}
+.cell.opened{
+    background:#1e2033;
+    box-shadow:none;
+    transform:none;
+}
+.cell.flag{
+    background:#4b3c66;
+}
+</style>
+</head>
+<body>
+<div class="info-top">剩余地雷:<span id="mineCount">10</span></div>
+<div class="control-group">
+    <label>地雷数:</label>
+    <button class="btn-num" id="minusBtn">-</button>
+    <input id="mineInput" type="number" value="10">
+    <button class="btn-num" id="plusBtn">+</button>
+    <button id="restartBtn">应用</button>
+</div>
+<div class="tip-text">左键点开｜右键插旗</div>
+<div id="board"></div>
+<script>
+const R=9,C=9;
+const TOTAL_CELL = R * C;
+const MINE_MIN = 1;
+const MINE_MAX = TOTAL_CELL - 9;
+let MINE = 10;
+
+let isFirstClick = true,openedSafeCount = 0;
+let board=[],isOpen=[],isMine=[],isFlag=[],remain=MINE;
+const el=document.getElementById('board'),cntEl=document.getElementById('mineCount');
+const mineInput = document.getElementById('mineInput');
+const restartBtn = document.getElementById('restartBtn');
+const plusBtn = document.getElementById('plusBtn');
+const minusBtn = document.getElementById('minusBtn');
+
+function clampMineCount(inputVal){
+    let v = Number(inputVal);
+    if(isNaN(v)) v = MINE_MIN;
+    v = Math.floor(v);
+    return Math.max(MINE_MIN, Math.min(MINE_MAX, v));
+}
+
+plusBtn.onclick = function(){
+    let val = clampMineCount(Number(mineInput.value)+1);
+    mineInput.value = val;
+};
+minusBtn.onclick = function(){
+    let val = clampMineCount(Number(mineInput.value)-1);
+    mineInput.value = val;
+};
+
+restartBtn.onclick = function(){
+    MINE = clampMineCount(mineInput.value);
+    mineInput.value = MINE;
+    init();
+};
+
+function init(){
+    el.innerHTML='';
+    board=[];isOpen=[];isMine=[];isFlag=[];
+    remain = MINE;
+    isFirstClick = true;openedSafeCount = 0;
+    cntEl.textContent=remain;
+
+    for(let y=0;y<R;y++){
+        board[y]=[];isOpen[y]=[];isMine[y]=[];isFlag[y]=[];
+        for(let x=0;x<C;x++){
+            isOpen[y][x]=false;isMine[y][x]=false;isFlag[y][x]=false;
+            const d=document.createElement('div');
+            d.className='cell';
+            d.dataset.x=x;d.dataset.y=y;
+            d.onclick=()=>click(x,y);
+            d.oncontextmenu=e=>{e.preventDefault();rightClick(x,y);};
+            el.appendChild(d);
+        }
+    }
+}
+
+function placeMines(safeX,safeY){
+    let c=0;
+    while(c<MINE){
+        const y=Math.floor(Math.random()*R);
+        const x=Math.floor(Math.random()*C);
+        const isSafeZone = Math.abs(x-safeX)<=1 && Math.abs(y-safeY)<=1;
+        if(!isMine[y][x] && !isSafeZone){
+            isMine[y][x]=true;
+            c++;
+        }
+    }
+}
+
+function countMine(x,y){
+    let s=0;
+    for(let dy=-1;dy<=1;dy++)
+        for(let dx=-1;dx<=1;dx++){
+            const ny=y+dy,nx=x+dx;
+            if(ny>=0&&ny<R&&nx>=0&&nx<C&&isMine[ny][nx])s++;
+        }
+    return s;
+}
+
+function showAllMine(){
+    for(let y=0;y<R;y++){
+        for(let x=0;x<C;x++){
+            if(isMine[y][x]){
+                const d=document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+                d.classList.add("opened");
+                d.textContent="💣";
+                d.style.background="#702020";
+            }
+        }
+    }
+}
+
+function open(x,y){
+    if(x<0||x>=C||y<0||y>=R||isOpen[y][x]||isFlag[y][x])return;
+
+    if(isFirstClick){
+        placeMines(x,y);
+        isFirstClick = false;
+    }
+
+    isOpen[y][x]=true;
+    const d=document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+    d.classList.add('opened');
+
+    if(isMine[y][x]){
+        showAllMine();
+        setTimeout(()=>{alert('💥踩到地雷！确定重新开始');init();},350);
+        return;
+    }
+    openedSafeCount++;
+    const n=countMine(x,y);
+    if(n>0){
+        d.textContent=n;
+        const col={1:'#42a5f5',2:'#66bb6a',3:'#ef5350',4:'#5c6bc0',5:'#a1522d',6:'#26c6da',7:'#444',8:'#999'};
+        d.style.color=col[n];
+    }else{
+        for(let dy=-1;dy<=1;dy++)
+            for(let dx=-1;dx<=1;dx++) open(x+dx,y+dy);
+    }
+}
+
+function click(x,y){open(x,y);checkWin();}
+
+function rightClick(x,y){
+    if(isOpen[y][x])return;
+    if(isFirstClick) return;
+    const d=document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
+    isFlag[y][x]=!isFlag[y][x];
+    if(isFlag[y][x]){
+        d.classList.add('flag');
+        d.textContent='🚩';
+        remain--;
+    }else{
+        d.classList.remove('flag');
+        d.textContent='';
+        remain++;
+    }
+    cntEl.textContent=remain;
+}
+// 判断所有非地雷格子是否全部点开
+function allSafeOpened(){
+    const totalSafe = R*C - MINE;
+    return openedSafeCount >= totalSafe;
+}
+
+function checkWin(){
+    let correctFlag = 0;
+    for(let y=0;y<R;y++){
+        for(let x=0;x<C;x++){
+            if(isFlag[y][x] && isMine[y][x]){
+                correctFlag++;
+            }
+        }
+    }
+    //二选一胜利：插对全部地雷  OR 点开全部安全格子
+    if( (remain === 0 && correctFlag === MINE) || allSafeOpened() ){
+        alert('🎉扫雷胜利！');
+        init();
+    }
+}
+
+init();
+</script>
+</body></html>
