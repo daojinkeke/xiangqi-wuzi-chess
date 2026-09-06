@@ -3,8 +3,14 @@
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>俄罗斯方块</title>
   <style>
+    :root {
+      --cell: 26px;
+      --pcell: 26px;
+    }
+
     * {
       margin: 0;
       padding: 0;
@@ -16,30 +22,39 @@
       color: #ffffff;
       font-family: "Microsoft Yahei", Arial, sans-serif;
       display: flex;
-      justify-content: center;
-      align-items: center;
       min-height: 100vh;
+      overflow-x: hidden;
+      touch-action: manipulation;
     }
 
     .wrap {
       display: flex;
       gap: 32px;
       align-items: flex-start;
+      margin: auto;
+      padding: 16px 0;
+    }
+
+    .game-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
     #game {
       display: grid;
-      grid-template-columns: repeat(12, 26px);
+      grid-template-columns: repeat(12, var(--cell));
       gap: 2px;
       background: #202035;
       padding: 4px;
       border-radius: 8px;
       box-shadow: 0 0 24px #25254688;
+      touch-action: none;
     }
 
     .cell {
-      width: 26px;
-      height: 26px;
+      width: var(--cell);
+      height: var(--cell);
       background: #141422;
       border-radius: 3px;
     }
@@ -50,6 +65,7 @@
     }
 
     @keyframes flashAnim {
+
       0% {
         background: #ff4466;
       }
@@ -91,13 +107,13 @@
 
     #preview {
       display: grid;
-      grid-template-columns: repeat(4, 26px);
+      grid-template-columns: repeat(4, var(--pcell));
       gap: 2px;
     }
 
     .preview-cell {
-      width: 26px;
-      height: 26px;
+      width: var(--pcell);
+      height: var(--pcell);
       background: #141422;
       border-radius: 3px;
     }
@@ -114,6 +130,7 @@
       display: none;
       justify-content: center;
       align-items: center;
+      z-index: 2;
     }
 
     .pause-text {
@@ -122,27 +139,134 @@
       font-weight: bold;
       text-shadow: 0 0 10px #ffdd4477;
     }
+
+    /* ===== 触屏控制按钮（仅触屏设备显示） ===== */
+    #touch-controls {
+      display: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .tc {
+      width: 54px;
+      height: 54px;
+      font-size: 24px;
+      line-height: 1;
+      border: none;
+      border-radius: 12px;
+      background: #2a2a44;
+      color: #fff;
+      touch-action: none;
+      cursor: pointer;
+    }
+
+    .tc:active {
+      background: #44446e;
+    }
+
+    @media (pointer: coarse) {
+      :root {
+        --cell: min(6.4vw, 26px);
+        --pcell: 15px;
+      }
+
+      .wrap {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+      }
+
+      /* 状态栏（分数/行数/下一个）移到棋盘上方 */
+      .side-panel {
+        order: -1;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        width: calc(12 * var(--cell) + 30px);
+      }
+
+      .title,
+      .keys,
+      .preview-title {
+        display: none;
+      }
+
+      #preview-box {
+        padding: 6px;
+      }
+
+      /* 紧凑按钮网格：← → · ⤓（右上）/ ⏸ ⟲ ↓ */
+      #touch-controls {
+        display: grid;
+        grid-template-columns: repeat(4, 48px);
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      #tLeft {
+        grid-area: 1 / 1;
+      }
+
+      #tRight {
+        grid-area: 1 / 2;
+      }
+
+      #tDrop {
+        grid-area: 1 / 4;
+      }
+
+      #tPause {
+        grid-area: 2 / 1;
+      }
+
+      #tRestart {
+        grid-area: 2 / 2;
+      }
+
+      #tDown {
+        grid-area: 2 / 3;
+      }
+
+      .tc {
+        width: 48px;
+        height: 48px;
+        font-size: 22px;
+      }
+    }
   </style>
 </head>
 
 <body>
   <div class="wrap">
-    <div class="pause-wrap">
-      <div id="game"></div>
-      <div id="pause-overlay">
-        <div class="pause-text">⏸ 已暂停</div>
+    <div class="game-col">
+      <div class="pause-wrap">
+        <div id="game"></div>
+        <div id="pause-overlay">
+          <div class="pause-text">⏸ 已暂停</div>
+        </div>
+      </div>
+      <div id="touch-controls">
+        <button class="tc" id="tLeft">←</button>
+        <button class="tc" id="tRight">→</button>
+        <button class="tc" id="tDrop">⤓</button>
+        <button class="tc" id="tPause">⏸</button>
+        <button class="tc" id="tRestart">⟲</button>
+        <button class="tc" id="tDown">↓</button>
       </div>
     </div>
     <div class="side-panel">
       <div class="title">俄罗斯方块</div>
       <div class="info-text">
-        分数：<span id="score">0</span><br>
-        消除行数：<span id="lineCount">0</span><br>
-        ← → 移动&nbsp;&nbsp;↑ 旋转<br>
-        ↓ 加速下落<br>
-        空格：快速落底<br>
-        P：暂停/继续<br>
-        R：重新开始
+        <div class="stats">分数：<span id="score">0</span>&nbsp;&nbsp;消除行数：<span id="lineCount">0</span></div>
+        <div class="keys">
+          ← → 移动&nbsp;&nbsp;↑ 旋转<br>
+          ↓ 加速下落<br>
+          空格：快速落底<br>
+          P：暂停/继续<br>
+          R：重新开始
+        </div>
       </div>
       <div id="preview-box">
         <div class="preview-title">下一个方块</div>
@@ -167,6 +291,8 @@
     const LOCK_COLOR = "#aaaaaa";
 
     let board = [];
+    let cellDoms = [];
+    let previewCells = [];
     let cur = null;
     let curColor = "";
     let nextShape = null;
@@ -229,27 +355,29 @@
 
     function initPreview() {
       previewDom.innerHTML = "";
+      previewCells = [];
       for (let y = 0; y < 4; y++) {
+        const row = [];
         for (let x = 0; x < 4; x++) {
           const div = document.createElement("div");
           div.className = "preview-cell";
-          div.dataset.px = x; div.dataset.py = y;
           previewDom.appendChild(div);
+          row.push(div);
         }
+        previewCells.push(row);
       }
     }
 
     function renderPreview() {
-      document.querySelectorAll(".preview-cell").forEach(d => d.style.backgroundColor = "#141422");
+      for (const row of previewCells) {
+        for (const d of row) d.style.backgroundColor = "#141422";
+      }
       const offsetX = Math.floor((4 - nextShape[0].length) / 2);
       const offsetY = Math.floor((4 - nextShape.length) / 2);
       for (let y = 0; y < nextShape.length; y++) {
         for (let x = 0; x < nextShape[y].length; x++) {
           if (nextShape[y][x]) {
-            const px = offsetX + x;
-            const py = offsetY + y;
-            const cell = document.querySelector(`.preview-cell[data-px="${px}"][data-py="${py}"]`);
-            if (cell) cell.style.backgroundColor = nextColor;
+            previewCells[offsetY + y][offsetX + x].style.backgroundColor = nextColor;
           }
         }
       }
@@ -266,14 +394,21 @@
     function initBoard() {
       board = Array.from({ length: HEIGHT }, () => Array(WIDTH).fill(null));
       gameDom.innerHTML = "";
+      cellDoms = [];
       for (let y = 0; y < HEIGHT; y++) {
+        const row = [];
         for (let x = 0; x < WIDTH; x++) {
           const div = document.createElement("div");
           div.className = "cell";
-          div.dataset.x = x; div.dataset.y = y;
           gameDom.appendChild(div);
+          row.push(div);
         }
+        cellDoms.push(row);
       }
+    }
+
+    function getCell(x, y) {
+      return cellDoms[y][x];
     }
 
     function newPiece() {
@@ -303,6 +438,43 @@
       }
     }
 
+    // ===== 消行奖励音效（Web Audio 合成，无需外部音频文件） =====
+    let audioCtx = null;
+    // AudioContext 必须在用户手势（按键/点击）中创建和恢复，否则会被浏览器静音
+    function unlockAudio() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+      } catch (err) {
+        console.warn("音频初始化失败：", err);
+      }
+    }
+
+    function playClearSound(lines) {
+      try {
+        if (!audioCtx || audioCtx.state === "suspended") return;
+        // 音高随消除行数提升，行数越多奖励感越强
+        const pitch = 1 + (lines - 1) * 0.15;
+        const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6 上行琶音
+        notes.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "triangle";
+          osc.frequency.value = freq * pitch;
+          const t = audioCtx.currentTime + i * 0.08;
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(t);
+          osc.stop(t + 0.4);
+        });
+      } catch (err) {
+        console.warn("播放音效失败：", err);
+      }
+    }
+
     function clearLine() {
       let willClearRows = [];
       for (let y = HEIGHT - 1; y >= 0; y--) {
@@ -318,10 +490,10 @@
       }
 
       isClearing = true;
+      playClearSound(willClearRows.length);
       for (const y of willClearRows) {
         for (let x = 0; x < WIDTH; x++) {
-          const dom = getCell(x, y);
-          dom.classList.add("flash");
+          getCell(x, y).classList.add("flash");
         }
       }
 
@@ -350,17 +522,14 @@
       }, 400);
     }
 
-    function getCell(x, y) {
-      return document.querySelector(`.cell[data-x="${x}"][data-y="${y}"]`);
-    }
-
     function render() {
-      const cells = document.querySelectorAll(".cell");
-      for (const d of cells) {
-        if (!isClearing) {
-          d.classList.remove("flash");
+      for (const row of cellDoms) {
+        for (const d of row) {
+          if (!isClearing) {
+            d.classList.remove("flash");
+          }
+          d.style.backgroundColor = "#141422";
         }
-        d.style.backgroundColor = "#141422";
       }
 
       for (let y = 0; y < HEIGHT; y++) {
@@ -445,54 +614,132 @@
       timer = setInterval(drop, 450);
     }
 
+    // ===== 通用操作（键盘和触屏按钮共用） =====
+    function actLeft() {
+      if (isPaused || isClearing || !cur) return;
+      if (!checkCollision(-1, 0)) {
+        curX--;
+        render();
+      }
+    }
+
+    function actRight() {
+      if (isPaused || isClearing || !cur) return;
+      if (!checkCollision(1, 0)) {
+        curX++;
+        render();
+      }
+    }
+
+    function actDown() {
+      if (isPaused || isClearing || !cur) return;
+      if (!checkCollision(0, 1)) {
+        curY++;
+        render();
+      }
+    }
+
+    function actRotate() {
+      if (isPaused || isClearing || !cur) return;
+      const rotRes = tryRotate();
+      if (rotRes.ok) {
+        cur = rotRes.newPiece;
+        curX += rotRes.dx;
+        if (checkCollision(0, 1)) {
+          lock();
+          clearLine();
+          return;
+        }
+      }
+      render();
+    }
+
+    function actPause() {
+      isPaused = !isPaused;
+      pauseOverlay.style.display = isPaused ? "flex" : "none";
+    }
+
     document.addEventListener("keydown", e => {
+      unlockAudio();
       if (e.code === "Space") {
         e.preventDefault();
         hardDrop();
         return;
       }
       if (e.key === "p" || e.key === "P") {
-        isPaused = !isPaused;
-        pauseOverlay.style.display = isPaused ? "flex" : "none";
+        actPause();
         return;
       }
       if (isPaused || !cur || isClearing) return;
 
       switch (e.key) {
         case "ArrowLeft":
-          if (!checkCollision(-1, 0)) curX--;
+          actLeft();
           break;
         case "ArrowRight":
-          if (!checkCollision(1, 0)) curX++;
+          actRight();
           break;
         case "ArrowDown":
-          if (!checkCollision(0, 1)) curY++;
+          actDown();
           break;
-        case "ArrowUp": {
-          const rotRes = tryRotate();
-          if (rotRes.ok) {
-            cur = rotRes.newPiece;
-            curX += rotRes.dx;
-            if (checkCollision(0, 1)) {
-              lock();
-              clearLine();
-              return;
-            }
-          }
+        case "ArrowUp":
+          actRotate();
           break;
-        }
-        case "p":
-        case "P":
-          isPaused = !isPaused;
-          pauseOverlay.style.display = isPaused ? "flex" : "none";
-          return;
         case "r":
         case "R":
           start();
           return;
       }
-      render();
     })
+
+    // 鼠标/触摸点击也能解锁音频
+    document.addEventListener("pointerdown", unlockAudio);
+
+    // ===== 触屏按钮绑定 =====
+    // 持续按住可重复触发（用于左右移动和加速）
+    function bindHold(id, fn) {
+      const btn = document.getElementById(id);
+      let interval = null;
+      const stop = () => {
+        clearInterval(interval);
+        interval = null;
+      };
+      btn.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        unlockAudio();
+        fn();
+        interval = setInterval(fn, 110);
+      });
+      btn.addEventListener("pointerup", stop);
+      btn.addEventListener("pointercancel", stop);
+      btn.addEventListener("pointerleave", stop);
+    }
+
+    // 点击/触摸棋盘即旋转方块（移动端主要旋转方式）
+    gameDom.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      unlockAudio();
+      actRotate();
+    });
+
+    bindHold("tLeft", actLeft);
+    bindHold("tRight", actRight);
+    bindHold("tDown", actDown);
+    document.getElementById("tDrop").addEventListener("pointerdown", e => {
+      e.preventDefault();
+      unlockAudio();
+      hardDrop();
+    });
+    document.getElementById("tPause").addEventListener("pointerdown", e => {
+      e.preventDefault();
+      unlockAudio();
+      actPause();
+    });
+    document.getElementById("tRestart").addEventListener("pointerdown", e => {
+      e.preventDefault();
+      unlockAudio();
+      start();
+    });
 
     start();
 
